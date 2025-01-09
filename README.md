@@ -17,12 +17,25 @@ $ curl -L https://github.com/guyfedwards/nom/releases/download/v2.1.4/nom_2.1.4_
 
 ## Usage
 ```sh
-$ nom # start TUI
-$ nom list -n 20 # list feed items in $PAGER, optionally show more
-$ nom add <feed_url>
-$ nom refresh # refresh feed(s) without opening TUI
-$ nom config # shows nom config
-$ nom --feed <feed_url> # preview feed without adding to config
+Usage:
+  nom [OPTIONS] [command]
+
+Application Options:
+  -v, --verbose      Show verbose logging
+  -n, --number=      Number of results to show
+  -p, --pager=       Pager to use for longer output. Set to false for no pager
+      --config-path= Location of config.yml
+  -f, --feed=        Feed(s) URL(s) for preview
+
+Help Options:
+  -h, --help         Show this help message
+
+Available commands:
+  add      Add feed
+  config   Show config
+  list     List feeds
+  refresh  Refresh feeds
+  version  Show Vesion
 ```
 
 ## Config

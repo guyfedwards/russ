@@ -1,15 +1,13 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
-
-	"github.com/jessevdk/go-flags"
 
 	"github.com/guyfedwards/nom/v2/internal/commands"
 	"github.com/guyfedwards/nom/v2/internal/config"
 	"github.com/guyfedwards/nom/v2/internal/store"
+	"github.com/jessevdk/go-flags"
 )
 
 type Options struct {
@@ -18,80 +16,126 @@ type Options struct {
 	Pager        string   `short:"p" long:"pager" description:"Pager to use for longer output. Set to false for no pager"`
 	ConfigPath   string   `long:"config-path" description:"Location of config.yml"`
 	PreviewFeeds []string `short:"f" long:"feed" description:"Feed(s) URL(s) for preview"`
-	Version      bool     `long:"version" description:"Display version information"`
 }
 
 var (
-	version          = "dev"
-	ErrNotEnoughArgs = errors.New("not enough args")
+	options Options
+	version = "dev"
 )
 
-func run(args []string, opts Options) error {
-	cfg, err := config.New(opts.ConfigPath, opts.Pager, opts.PreviewFeeds, version)
+// Setup subcommands
+
+type Add struct {
+	Positional struct {
+		Url string `positional-arg-name:"URL" required:"yes"`
+	} `positional-args:"yes"`
+}
+
+func (r *Add) Execute(args []string) error {
+	cmds, err := getCmds()
+	if err != nil {
+		return err
+	}
+	return cmds.Add(r.Positional.Url)
+}
+
+type Config struct{}
+
+func (r *Config) Execute(args []string) error {
+	cmds, err := getCmds()
+	if err != nil {
+		return err
+	}
+	return cmds.ShowConfig()
+}
+
+type List struct{}
+
+func (r *List) Execute(args []string) error {
+	cmds, err := getCmds()
 	if err != nil {
 		return err
 	}
 
-	if err = cfg.Load(); err != nil {
+	return cmds.List(options.Number)
+}
+
+type Version struct{}
+
+func (r *Version) Execute(args []string) error {
+	_, err := getCmds()
+	if err != nil {
 		return err
+	}
+
+	fmt.Printf("%s\n", version)
+	return nil
+}
+
+type Refresh struct{}
+
+func (r *Refresh) Execute(args []string) error {
+	cmds, err := getCmds()
+	if err != nil {
+		return err
+	}
+	return cmds.Refresh()
+}
+
+func getCmds() (*commands.Commands, error) {
+	cfg, err := config.New(options.ConfigPath, options.Pager, options.PreviewFeeds, version)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = cfg.Load(); err != nil {
+		return nil, err
 	}
 
 	s, err := store.NewSQLiteStore(cfg.ConfigDir)
 	if err != nil {
-		return fmt.Errorf("main.go: %w", err)
+		return nil, fmt.Errorf("main.go: %w", err)
 	}
 	cmds := commands.New(cfg, s)
-
-	if opts.Version || (len(args) > 0 && args[0] == "version") {
-		fmt.Printf("%s\n", version)
-		return nil
-	}
-
-	// no subcommand, run the TUI
-	if len(args) == 0 {
-		return cmds.TUI()
-	}
-
-	switch args[0] {
-	case "list":
-		return cmds.List(opts.Number)
-	case "refresh":
-		return cmds.Refresh()
-	case "config":
-		return cmds.ShowConfig()
-	case "add":
-		if len(args) != 2 {
-			return ErrNotEnoughArgs
-		}
-
-		return cmds.Add(args[1])
-	}
-
-	return nil
+	return &cmds, nil
 }
 
 func main() {
-	var opts Options
+	parser := flags.NewParser(&options, flags.Default)
+	// allow nom to be run without any subcommands
+	parser.SubcommandsOptional = true
 
-	parser := flags.NewParser(&opts, flags.Default)
+	// add commands
+	parser.AddCommand("add", "Add feed", "Add a new feed", &Add{})
+	parser.AddCommand("config", "Show config", "Show configuration", &Config{})
+	parser.AddCommand("list", "List feeds", "List all feeds", &List{})
+	parser.AddCommand("version", "Show Vesion", "Display version information", &Version{})
+	parser.AddCommand("refresh", "Refresh feeds", "refresh feed(s) without opening TUI", &Refresh{})
 
-	args, err := parser.Parse()
+	// parse the command line arguments
+	_, err := parser.Parse()
+
+	// check for help flag
 	if err != nil {
-		if flagsErr, ok := err.(*flags.Error); ok && flagsErr.Type == flags.ErrHelp {
-			os.Exit(0)
-		} else {
-			fmt.Printf("%v\n", err)
+		if flagErr, ok := err.(*flags.Error); ok && flagErr.Type != flags.ErrHelp {
+			parser.WriteHelp(os.Stdout)
+		}
+
+		os.Exit(0)
+	}
+
+	// no subcommand or help flag, run the TUI
+	if parser.Active == nil {
+		cmds, err := getCmds()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
+		err = cmds.TUI()
+		if err != nil {
+			fmt.Println(err)
 			os.Exit(1)
 		}
 		return
-	}
-
-	if err := run(args, opts); err != nil {
-		if opts.Verbose || errors.Is(err, config.ErrFeedAlreadyExists) {
-			fmt.Printf("%v\n", err)
-		}
-
-		parser.WriteHelp(os.Stderr)
-		os.Exit(1)
 	}
 }
